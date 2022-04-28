@@ -6,6 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 import TRNmodule
+import video_dg as APN
 import math
 
 from colorama import init
@@ -110,7 +111,7 @@ class VideoModel(nn.Module):
 		self._prepare_DA(num_class, base_model, modality)
 
 		if not self.before_softmax:
-			self.softmax = nn.Softmax()
+			self.softmax = nn.Softmax(dim=1)
 
 		self._enable_pbn = partial_bn
 		if partial_bn:
@@ -121,10 +122,12 @@ class VideoModel(nn.Module):
 			from C3D_model import C3D
 			model_test = C3D()
 			self.feature_dim = model_test.fc7.in_features
-		elif base_model == "TBN" and modality=="ALL":
-			self.feature_dim = 3072
-		elif base_model == "TBN":
-			self.feature_dim = 1024
+		# elif base_model == "TBN" and modality=="ALL":
+		# 	self.feature_dim = 3072
+		# elif base_model == "TBN":
+		# 	self.feature_dim = 1024
+		elif base_model =="TBN":
+			self.feature_dim = 1024 * len(modality)
 		else:
 			model_test = getattr(torchvision.models, base_model)(True) # model_test is only used for getting the dim #
 			self.feature_dim = model_test.fc.in_features
@@ -254,6 +257,14 @@ class VideoModel(nn.Module):
 				nn.Conv2d(2, 1, kernel_size=(1, 1), padding=(0, 0)),
 				nn.ReLU(inplace=True),
 			)
+		elif self.frame_aggregation == "videodg":
+			self.num_bottleneck = 256
+			self.videodg_fc = nn.Sequential(
+                        nn.ReLU(),
+                        nn.Linear(feat_shared_dim, self.num_bottleneck),
+                        nn.ReLU(),
+                        )
+			self.APN = APN.RelationModuleMultiScale(feat_shared_dim, self.train_segments)
 
 		# ------ video-level layers (source layers + domain layers) ------#
 		if self.frame_aggregation == 'avgpool': # 1. avgpool
@@ -264,6 +275,8 @@ class VideoModel(nn.Module):
 			feat_aggregated_dim = self.hidden_dim
 		elif self.frame_aggregation == 'temconv': # 3. temconv
 			feat_aggregated_dim = feat_shared_dim
+		elif self.frame_aggregation == 'videodg':
+			feat_aggregated_dim = self.train_segments * self.num_bottleneck
 
 		feat_video_dim = feat_aggregated_dim
 
@@ -582,7 +595,6 @@ class VideoModel(nn.Module):
 		# need to separate BN for source & target ==> otherwise easy to overfit to source data
 		if self.add_fc < 1:
 			raise ValueError(Back.RED + 'not enough fc layer')
-
 		feat_fc_source = self.fc_feature_shared_source(feat_base_source)
 		feat_fc_target = self.fc_feature_shared_target(feat_base_target) if self.share_params == 'N' else self.fc_feature_shared_source(feat_base_target)
 
@@ -635,7 +647,6 @@ class VideoModel(nn.Module):
 			feat_fc_target = self.get_attn_feat_frame(feat_fc_target, pred_fc_domain_frame_target)
 
 		#=== source layers (frame-level) ===#
-
 		pred_fc_source = (self.fc_classifier_source_verb(feat_fc_source), self.fc_classifier_source_noun(feat_fc_source))
 		pred_fc_target = (self.fc_classifier_target_verb(feat_fc_target) if self.share_params == 'N' else self.fc_classifier_source_verb(feat_fc_target),
 						  self.fc_classifier_target_noun(feat_fc_target) if self.share_params == 'N' else self.fc_classifier_source_noun(feat_fc_target))
@@ -693,6 +704,22 @@ class VideoModel(nn.Module):
 
 			feat_fc_video_source = feat_fc_video_source.squeeze(1).squeeze(1)  # e.g. 16 x 512
 			feat_fc_video_target = feat_fc_video_target.squeeze(1).squeeze(1)  # e.g. 16 x 512
+			
+		elif self.frame_aggregation == "videodg":
+			feat_fc_video_source = feat_fc_source.view((-1, num_segments) + feat_fc_source.size()[-1:])  # reshape based on the segments (e.g. 640x512 --> 128x5x512)
+			feat_fc_video_target = feat_fc_target.view((-1, num_segments) + feat_fc_target.size()[-1:])  # reshape based on the segments (e.g. 640x512 --> 128x5x512)
+
+			# from 128x5x512 to 125x5x256
+			feat_fc_video_source = self.videodg_fc(feat_fc_video_source) # 128x5x512 --> 128x5x256 (256-dim. relation feature vectors x 5)
+			feat_fc_video_target = self.videodg_fc(feat_fc_video_target)
+
+			# Here use videoDG RADA APN
+			feat_fc_video_source, _ = self.APN(feat_fc_video_source) # 128x5x256 --> 128x1280 (1280-dim. video feature vectors)
+			feat_fc_video_target, _ = self.APN(feat_fc_video_target)
+
+			attn_relation_source = feat_fc_video_source[:,0] # assign random tensors to attention values to avoid runtime error
+			attn_relation_target = feat_fc_video_target[:,0] # assign random tensors to attention values to avoid runtime error
+
 
 		if self.baseline_type == 'video':
 			feat_all_source.append(feat_fc_video_source.view((batch_source,) + feat_fc_video_source.size()[-1:]))

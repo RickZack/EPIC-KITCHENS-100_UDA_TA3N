@@ -71,7 +71,7 @@ def main():
 			num_class.append(int(num))
 
 	#=== check the folder existence ===#
-	path_exp = args.exp_path + args.modality + '/'
+	path_exp = args.exp_path + '_'.join(args.modality) + '/'
 	if not os.path.isdir(path_exp):
 		os.makedirs(path_exp)
 
@@ -148,6 +148,7 @@ def main():
 		data_length = 1
 	elif args.modality in ['Flow', 'RGBDiff', 'RGBDiff2', 'RGBDiffplus']:
 		data_length = 1
+	data_length = 1
 
 	# calculate the number of videos to load for training in each list ==> make sure the iteration # of source & target are same
 	num_source = len(pd.read_pickle(args.train_source_list).index)
@@ -164,7 +165,7 @@ def main():
 							new_length=data_length, modality=args.modality,
 							image_tmpl="img_{:05d}.t7" if args.modality in ["RGB", "RGBDiff", "RGBDiff2", "RGBDiffplus"] else args.flow_prefix+"{}_{:05d}.t7",
 							random_shift=False,
-							test_mode=True,
+							test_mode=True
 							)
 
 	source_sampler = torch.utils.data.sampler.RandomSampler(source_set)
@@ -174,7 +175,7 @@ def main():
 							new_length=data_length, modality=args.modality,
 							image_tmpl="img_{:05d}.t7" if args.modality in ["RGB", "RGBDiff", "RGBDiff2", "RGBDiffplus"] else args.flow_prefix + "{}_{:05d}.t7",
 							random_shift=False,
-							test_mode=True,
+							test_mode=True
 							)
 
 	target_sampler = torch.utils.data.sampler.RandomSampler(target_set)

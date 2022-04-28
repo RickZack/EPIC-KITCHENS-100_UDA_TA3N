@@ -40,27 +40,22 @@ class VideoRecord(object):
 
 class TSNDataSet(data.Dataset):
     def __init__(self, data_path, list_file, num_dataload,
-                 num_segments=3, total_segments=25, new_length=1, modality='RGB',
+                 num_segments=3, total_segments=25, new_length=1, modality=['RGB'],
                  image_tmpl='img_{:05d}.t7', transform=None,
                  force_grayscale=False, random_shift=True,
                  test_mode=False, noun_data_path=None):
         self.modality = modality
         try:
+            # import pdb; pdb.set_trace()
             with open(data_path, "rb") as f:
                 data = pickle.load(f)
-                if modality == "ALL":
-                    self.data = np.concatenate(list(data['features'].values()), -1)
-                else:
-                    self.data = data['features'][modality]
+                self.data = np.concatenate(list(data['features'][m] for m in modality), -1)
                 data_narrations = data['narration_ids']
                 self.data = dict(zip(data_narrations, self.data))
             if noun_data_path is not None:
                 with open(noun_data_path, "rb") as f:
                     data = pickle.load(f)
-                    if modality == "ALL":
-                        self.noun_data = np.concatenate(list(data['features'].values()), -1)
-                    else:
-                        self.noun_data = data['features'][modality]
+                    self.noun_data = np.concatenate(list(data['features'][m] for m in modality), -1)
                     data_narrations = data['narration_ids']
                     self.noun_data = dict(zip(data_narrations, self.noun_data))
             else:
@@ -161,7 +156,6 @@ class TSNDataSet(data.Dataset):
 
     def __getitem__(self, index):
         record = self.video_list[index]
-
 
         if not self.test_mode:
             segment_indices = self._sample_indices(record) if self.random_shift else self._get_val_indices(record)

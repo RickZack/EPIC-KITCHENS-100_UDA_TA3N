@@ -1,7 +1,7 @@
 import argparse
 parser = argparse.ArgumentParser(description="PyTorch implementation of Temporal Segment Networks")
 parser.add_argument('num_class', type=str, default="classInd.txt")
-parser.add_argument('modality', type=str, choices=['Audio', 'RGB', 'Flow', 'RGBDiff', 'RGBDiff2', 'RGBDiffplus', 'ALL'])
+parser.add_argument('modality', type=str, choices=['Audio', 'RGB', 'Flow', 'RGBDiff', 'RGBDiff2', 'RGBDiffplus', 'ALL'], nargs='+')
 parser.add_argument('train_source_list', type=str)
 parser.add_argument('train_target_list', type=str)
 parser.add_argument('val_list', type=str)
@@ -21,7 +21,7 @@ parser.add_argument('--fc_dim', type=int, default=1024, help='dimension of added
 parser.add_argument('--baseline_type', type=str, default='frame',
                     choices=['frame', 'video', 'tsn'])
 parser.add_argument('--frame_aggregation', type=str, default='avgpool',
-                    choices=['avgpool', 'rnn', 'temconv', 'trn', 'trn-m', 'none'], help='aggregation of frame features (none if baseline_type is not video)')
+                    choices=['avgpool', 'rnn', 'temconv', 'trn', 'trn-m', 'none', 'videodg'], help='aggregation of frame features (none if baseline_type is not video)')
 parser.add_argument('--optimizer', type=str, default='SGD', choices=['SGD', 'Adam'])
 parser.add_argument('--use_opencv', default=False, action="store_true",
                     help='whether to use the opencv transformation')

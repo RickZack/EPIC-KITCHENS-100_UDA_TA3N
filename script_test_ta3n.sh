@@ -5,7 +5,9 @@ dataset="epic" # hmdb_ucf | hmdb_ucf_small | ucf_olympic
 num_class='97,300'
 training=false # true | false
 testing=true # true | false
-modality=ALL
+modality="RGB Audio"
+mod="$(echo -e "${modality}" | xargs | tr ' ' _ )"
+echo $mod
 frame_type=feature # frame | feature
 num_segments=5 # sample frame # of each video for training
 test_segments=5
@@ -102,9 +104,9 @@ then
 	mu=0
 	j=0
 
-	exp_path=$path_exp'-'$optimizer'-share_params_'$share_params'/'$dataset'-'$num_segments'seg_'$j'/'
+	exp_path=$path_exp'-'$optimizer'-share_params_'$share_params'/'$dataset'-'$num_segments'seg_'$j'/'$frame_aggregation'/'
 else
-	exp_path=$path_exp'-'$optimizer'-share_params_'$share_params'-lr_'$lr'-bS_'$bS'_'$bS_2'/'$dataset'-'$num_segments'seg-disDA_'$dis_DA'-alpha_'$alpha'-advDA_'$adv_DA'-beta_'$beta_0'_'$beta_1'_'$beta_2'-useBN_'$use_bn'-addlossDA_'$add_loss_DA'-gamma_'$gamma'-ensDA_'$ens_DA'-mu_'$mu'-useAttn_'$use_attn'-n_attn_'$n_attn'/'
+	exp_path=$path_exp'-'$optimizer'-share_params_'$share_params'-lr_'$lr'-bS_'$bS'_'$bS_2'/'$dataset'-'$num_segments'seg-disDA_'$dis_DA'-alpha_'$alpha'-advDA_'$adv_DA'-beta_'$beta_0'_'$beta_1'_'$beta_2'-useBN_'$use_bn'-addlossDA_'$add_loss_DA'-gamma_'$gamma'-ensDA_'$ens_DA'-mu_'$mu'-useAttn_'$use_attn'-n_attn_'$n_attn'/'$frame_aggregation'/'
 fi
 
 echo 'exp_path: '$exp_path
@@ -138,7 +140,7 @@ then
 	--pred_normalize $pred_normalize --weighted_class_loss_DA $weighted_class_loss_DA --weighted_class_loss $weighted_class_loss \
 	--gd $gd --lr $lr --lr_decay $lr_decay --lr_adaptive $lr_adaptive --lr_steps $lr_steps_1 $lr_steps_2 --epochs $epochs --optimizer $optimizer \
 	--n_rnn 1 --rnn_cell LSTM --n_directions 1 --n_ts 5 --tensorboard \
-	-b $bS $bS_2 $bS -j 4 -ef 1 -pf 50 -sf 50 --copy_list N N --save_model \
+	-b $bS $bS_2 $bS -j 0 -ef 1 -pf 50 -sf 50 --copy_list N N --save_model \
 
 fi
 
@@ -149,10 +151,12 @@ then
 
 	# testing on the validation set
 	echo 'testing on the test set'
-	python test_models.py $num_class $modality $val_list \
-	 $exp_path$modality'/'$model'.pth.tar' $path_data_val 'test.json'\
+	python test_models.py $num_class \
+	$modality \
+	 $val_list \
+	 $exp_path$mod'/'$model'.pth.tar' $path_data_val 'test.json'\
 	--arch $arch --test_segments $test_segments \
-	--save_scores $exp_path$modality'/scores_'$dataset_target'-'$model'-'$test_segments'seg' --save_confusion $exp_path$modality'/confusion_matrix_'$dataset_target'-'$model'-'$test_segments'seg' \
+	--save_scores $exp_path$mod'/scores_'$dataset_target'-'$model'-'$test_segments'seg' --save_confusion $exp_path$mod'/confusion_matrix_'$dataset_target'-'$model'-'$test_segments'seg' \
 	--n_rnn 1 --rnn_cell LSTM --n_directions 1 --n_ts 5 \
 	--use_attn $use_attn --n_attn $n_attn --use_attn_frame $use_attn_frame --use_bn $use_bn --share_params $share_params \
 	-j 4 --bS 512 --top 1 3 5 --add_fc 1 --fc_dim $fc_dim --baseline_type $baseline_type --frame_aggregation $frame_aggregation
