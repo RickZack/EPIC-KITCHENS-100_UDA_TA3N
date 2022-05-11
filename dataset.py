@@ -44,7 +44,7 @@ class TSNDataSet(data.Dataset):
                  image_tmpl='img_{:05d}.t7', transform=None,
                  force_grayscale=False, random_shift=True,
                  test_mode=False, noun_data_path=None, modality_norms=None,
-                 align_modalities=False):
+                 align_modalities: str = ''):
         self.modality = modality
         try:
             # import pdb; pdb.set_trace()
@@ -54,7 +54,7 @@ class TSNDataSet(data.Dataset):
                 if modality_norms:
                     feat = self.normalize_modalities_to(feat, modality_norms)
                 if align_modalities:
-                    feat = self.normalize_modalities(feat)
+                    feat = self.normalize_modalities(feat, align_modalities)
                 self.data = np.concatenate(list(feat[m] for m in modality), -1)
                 data_narrations = data['narration_ids']
                 self.data = dict(zip(data_narrations, self.data))
@@ -109,15 +109,16 @@ class TSNDataSet(data.Dataset):
         normalized_feat = {m: features[m] * modality_norm[m] / mean_feat_norn[m] for m in features}
         return normalized_feat
 
-    def normalize_modalities(self, features):
+    def normalize_modalities(self, features, align_choice: str):
+        align_functions = {'min': np.min, 'mean': np.mean, 'max': np.max}
         # calculate norm of features for each modality
         mean_feat_norn = {}
         for m, feat in features.items():
             mean_feat_norn[m] = np.mean(np.linalg.norm(feat, ord=2, axis=-1))
         # normalize phase
         print('Mean feature norms:', mean_feat_norn)
-        min_norm = np.min([mfn for mfn in mean_feat_norn.values()])
-        normalized_feat = {m: features[m] * min_norm / mean_feat_norn[m] for m in features}
+        align_norm = align_functions[align_choice.lower()]([mfn for mfn in mean_feat_norn.values()])
+        normalized_feat = {m: features[m] * align_norm / mean_feat_norn[m] for m in features}
         return normalized_feat
 
     def load_features_noun(self, idx, segment):

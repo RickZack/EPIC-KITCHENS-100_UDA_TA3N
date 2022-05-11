@@ -2,7 +2,7 @@
 import os
 import time
 import shutil
-from rna.rna_block import RNALossUDA
+from rna.rna_block import RNALoss
 import torch
 import torch.nn.parallel
 import torch.nn.functional as F
@@ -38,6 +38,7 @@ def main():
 	torch.manual_seed(args.seed)
 	torch.cuda.manual_seed_all(args.seed)
 
+	print(Fore.GREEN + 'Modalities used:', ','.join(args.modality))
 	print(Fore.GREEN + 'Baseline:', args.baseline_type)
 	print(Fore.GREEN + 'Frame aggregation method:', args.frame_aggregation)
 
@@ -56,9 +57,11 @@ def main():
 		if args.use_bn != 'none':
 			print(Fore.GREEN + 'Apply the adaptive normalization approach:', args.use_bn)
 
-	if args.rna:
-		print(Fore.GREEN + 'Using RNA with weight: ', args.rna_weight)
-		print(Fore.GREEN + 'Network used to rebalance norms: ', 'Squeeze-And-Excitation' if args.seqex else 'LinearLayer')
+	if args.additional_net:
+		print(Fore.GREEN + 'Additional net per modality network used before shared FC: ', args.additional_net)
+		print(Fore.GREEN + 'Dropout value after additional net: ', args.additional_net_drop)
+	if args.rna_weight:
+		print(Fore.GREEN + 'Using RNA loss with weight: ', args.rna_weight)
 
 	# determine the categories
 	#want to allow multi-label classes.
@@ -95,8 +98,8 @@ def main():
 				use_bn=args.use_bn if args.use_target != 'none' else 'none', ens_DA=args.ens_DA if args.use_target != 'none' else 'none',
 				n_rnn=args.n_rnn, rnn_cell=args.rnn_cell, n_directions=args.n_directions, n_ts=args.n_ts,
 				use_attn=args.use_attn, n_attn=args.n_attn, use_attn_frame=args.use_attn_frame,
-				verbose=args.verbose, share_params=args.share_params, rna=args.rna,
-				seqex=args.seqex)
+				verbose=args.verbose, share_params=args.share_params, additional_net=args.additional_net,
+				additional_net_drop=args.additional_net_drop, add_net_output=args.add_net_output)
 
 	model = torch.nn.DataParallel(model, args.gpus).cuda()
 
@@ -334,7 +337,8 @@ def train(num_class, source_loader, target_loader, model, criterion, criterion_d
 	top1_action = AverageMeter()
 	top5_action = AverageMeter()
 
-	rna_criterion = RNALossUDA(1024)
+	feat_dim = args.add_net_output if args.additional_net == 'linear' else 1024
+	rna_criterion = RNALoss(feat_dim)
 	losses_rna = AverageMeter()
 
 	if args.no_partialbn:
@@ -516,7 +520,7 @@ def train(num_class, source_loader, target_loader, model, criterion, criterion_d
 		loss_noun = criterion(out_noun, label_noun)
 		loss_rna = 0
 		# import pdb; pdb.set_trace()
-		if args.rna:
+		if args.rna_weight > 0:
 			loss_rna += args.rna_weight*rna_criterion(feat_fc_source)
 			if args.use_target != 'none':
 				loss_rna += args.rna_weight*rna_criterion(feat_fc_target)
@@ -532,7 +536,7 @@ def train(num_class, source_loader, target_loader, model, criterion, criterion_d
 		#MCD  not used
 		#if args.ens_DA == 'MCD' and args.use_target != 'none':
 		#	loss_classification += criterion(out_source_2, label)
-		if args.rna:
+		if args.rna_weight:
 			losses_rna.update(loss_rna, feat_fc_source.size(0))
 		losses_c_verb.update(loss_verb.item(), out_verb.size(0)) # pytorch 0.4.X
 		losses_c_noun.update(loss_noun.item(), out_noun.size(0))  # pytorch 0.4.X
@@ -737,7 +741,7 @@ def train(num_class, source_loader, target_loader, model, criterion, criterion_d
 
 			if args.ens_DA != 'none' and args.use_target != 'none':
 				line += 'mu {mu:.6f}  loss_s {loss_s.avg:.4f}\t'
-			if args.rna:
+			if args.rna_weight:
 				line += 'loss_rna {loss_rna.avg:.4f}\t'
 
 			line = line.format(

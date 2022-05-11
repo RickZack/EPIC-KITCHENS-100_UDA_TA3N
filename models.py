@@ -66,8 +66,8 @@ class VideoModel(nn.Module):
 				crop_num=1, partial_bn=True, verbose=True, add_fc=1, fc_dim=1024,
 				n_rnn=1, rnn_cell='LSTM', n_directions=1, n_ts=5,
 				use_attn='TransAttn', n_attn=1, use_attn_frame='none',
-				share_params='Y', rna=False,
-				seqex=True):
+				share_params='Y', additional_net: str ='', additional_net_drop: float = 0,
+				add_net_output: int = 1024):
 		super(VideoModel, self).__init__()
 		self.modality = modality
 		self.train_segments = train_segments
@@ -89,10 +89,11 @@ class VideoModel(nn.Module):
 		# RNA
 		self.feat_fc_source = None
 		self.feat_fc_target = None
-		self.rna = rna
-		if rna:
-			self.rna_block = RNABlock(modality, 1024, 1024, seqex).cuda()
-
+		self.additional_net = None
+		self.add_net_output = None
+		if additional_net:
+			self.additional_net = RNABlock(modality, 1024, add_net_output, additional_net, additional_net_drop).cuda()
+			self.add_net_output = add_net_output
 		# RNN
 		self.n_layers = n_rnn
 		self.rnn_cell = rnn_cell
@@ -138,6 +139,8 @@ class VideoModel(nn.Module):
 		# 	self.feature_dim = 1024
 		elif base_model =="TBN":
 			self.feature_dim = 1024 * len(modality)
+			if self.additional_net:
+				self.feature_dim = len(modality) * self.add_net_output
 		else:
 			model_test = getattr(torchvision.models, base_model)(True) # model_test is only used for getting the dim #
 			self.feature_dim = model_test.fc.in_features
@@ -601,10 +604,10 @@ class VideoModel(nn.Module):
 		feat_base_target = input_target.view(-1, input_target.size()[-1])  # e.g. 256 x 25 x 2048 --> 6400 x 2048
 
 		### Apply RNA
-		if self.rna:
+		if self.additional_net:
 			# import pdb; pdb.set_trace()
-			feat_base_source, norms_src = self.rna_block(feat_base_source)
-			feat_base_target, norms_tgt = self.rna_block(feat_base_target)
+			feat_base_source, norms_src = self.additional_net(feat_base_source)
+			feat_base_target, norms_tgt = self.additional_net(feat_base_target)
 			if not self.feature_norms:
 				self.feature_norms = {'src': {m: {'start': n, 'end': -1} for m, n in zip(self.modality, norms_src)},
 				 'tgt': {m: {'start': n, 'end': -1} for m, n in zip(self.modality, norms_tgt)}

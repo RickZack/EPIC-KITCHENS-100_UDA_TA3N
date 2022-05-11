@@ -1,4 +1,5 @@
 import itertools
+from typing import Any, Dict
 import numpy as np
 import matplotlib as mpl
 mpl.use('Agg')
@@ -51,7 +52,7 @@ def plot_confusion_matrix(path, cm, classes,
 
     plt.savefig(path)
 
-def save_result_csv(filename, modality, temp_aggr, use_target, seqex, rna_weight, prec1_v, prec_1n, prec_1a,
+def save_result_csv(filename, modality, temp_aggr, use_target, additional_net, dropout, rna_weight, prec1_v, prec_1n, prec_1a,
                     prec_5v, prec_5n, prec5_5a):
     file_exist = os.path.isfile(filename)
     modalities = '-'.join(modality)
@@ -62,14 +63,14 @@ def save_result_csv(filename, modality, temp_aggr, use_target, seqex, rna_weight
             writer.writerow(['Modality', 'Temporal Aggregation', 'Precision@1_verb',
                             'Precision@1_noun', 'Precision@1_action', 'Precision@5_verb',
                             'Precision@5_noun', 'Precision@5_action'])
-        scenario = 'source only'
+        scenario, rna, drop = 'source only', '', ''
         if rna_weight > 0:
             scenario = 'UDA' if use_target != 'none' else 'DG'
-        layer = 'SqEx' if seqex else 'Linear'
-        additional_layer = layer if rna_weight > 0 else ''
-        t_aggr = f"{temp_aggr} {scenario} {additional_layer}"
-        if rna_weight > 0:
-            t_aggr += f' RNA (w={rna_weight})'
+            rna = f'RNA (w={rna_weight})'
+        if dropout > 0:
+            drop = f'(drop={dropout})'
+        t_aggr = f"{temp_aggr} {scenario} {additional_net}{drop} {rna}"
+            
 
         writer.writerow([modalities, t_aggr, prec1_v, prec_1n, prec_1a,
                             prec_5v, prec_5n, prec5_5a])

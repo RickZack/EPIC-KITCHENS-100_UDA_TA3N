@@ -1,4 +1,5 @@
 import argparse
+from secrets import choice
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -82,10 +83,11 @@ parser.add_argument('--place_dis', default=['Y', 'Y', 'N'], type=str, nargs="+",
                     metavar='N', help='where to place the discrepancy loss (length = add_fc + 2)')
 parser.add_argument('--place_adv', default=['Y', 'Y', 'Y'], type=str, nargs="+",
                     metavar='N', help='[video relation-based adv, video-based adv, frame-based adv]')
-parser.add_argument('--align_modalities', type=str2bool, default=False)
-parser.add_argument('--rna', type=str2bool, default=False)
-parser.add_argument("--rna_weight", type=float, default=10)
-parser.add_argument("--seqex", type=str2bool, default=False)
+parser.add_argument('--align_modalities', type=str.lower, choices=['min', 'max', 'mean', ''], default='')
+parser.add_argument('--additional_net', type=str.lower, choices=['linear', 'sqex'], default='sqex')
+parser.add_argument('--additional_net_drop', type=float, default=0.5)
+parser.add_argument('--rna_weight', type=float, default=10)
+parser.add_argument('--add_net_output', type=int, default=1024)
 
 
 # ========================= Learning Configs ==========================
