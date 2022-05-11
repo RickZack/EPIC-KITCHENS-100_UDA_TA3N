@@ -1,4 +1,16 @@
 import argparse
+
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
+
 parser = argparse.ArgumentParser(description="PyTorch implementation of Temporal Segment Networks")
 parser.add_argument('num_class', type=str, default="classInd.txt")
 parser.add_argument('modality', type=str, choices=['Audio', 'RGB', 'Flow', 'RGBDiff', 'RGBDiff2', 'RGBDiffplus', 'ALL'], nargs='+')
@@ -70,6 +82,10 @@ parser.add_argument('--place_dis', default=['Y', 'Y', 'N'], type=str, nargs="+",
                     metavar='N', help='where to place the discrepancy loss (length = add_fc + 2)')
 parser.add_argument('--place_adv', default=['Y', 'Y', 'Y'], type=str, nargs="+",
                     metavar='N', help='[video relation-based adv, video-based adv, frame-based adv]')
+parser.add_argument('--align_modalities', type=str2bool, default=False)
+parser.add_argument('--rna', type=str2bool, default=False)
+parser.add_argument("--rna_weight", type=float, default=10)
+parser.add_argument("--seqex", type=str2bool, default=False)
 
 
 # ========================= Learning Configs ==========================
@@ -121,6 +137,7 @@ parser.add_argument('--save_best_log_val', default="best_val.log", type=str)
 parser.add_argument('--save_best_log_test', default="best_test.log", type=str)
 parser.add_argument('--save_attention', type=int, default=-1)
 parser.add_argument('--tensorboard', dest='tensorboard', action='store_true')
+parser.add_argument('--seed', type=int, default=1)
 
 
 

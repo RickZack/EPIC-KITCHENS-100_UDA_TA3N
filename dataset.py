@@ -43,13 +43,19 @@ class TSNDataSet(data.Dataset):
                  num_segments=3, total_segments=25, new_length=1, modality=['RGB'],
                  image_tmpl='img_{:05d}.t7', transform=None,
                  force_grayscale=False, random_shift=True,
-                 test_mode=False, noun_data_path=None):
+                 test_mode=False, noun_data_path=None, modality_norms=None,
+                 align_modalities=False):
         self.modality = modality
         try:
             # import pdb; pdb.set_trace()
             with open(data_path, "rb") as f:
                 data = pickle.load(f)
-                self.data = np.concatenate(list(data['features'][m] for m in modality), -1)
+                feat = data['features']
+                if modality_norms:
+                    feat = self.normalize_modalities_to(feat, modality_norms)
+                if align_modalities:
+                    feat = self.normalize_modalities(feat)
+                self.data = np.concatenate(list(feat[m] for m in modality), -1)
                 data_narrations = data['narration_ids']
                 self.data = dict(zip(data_narrations, self.data))
             if noun_data_path is not None:
@@ -93,6 +99,26 @@ class TSNDataSet(data.Dataset):
     #         y_feat = torch.load(os.path.join(directory, self.image_tmpl.format('y', idx)))
     #
     #         return [x_feat, y_feat]
+
+    def normalize_modalities_to(self, features, modality_norm):
+        mean_feat_norn = {}
+        for m, feat in features.items():
+            mean_feat_norn[m] = np.mean(np.linalg.norm(feat, ord=2, axis=-1))
+        print("Modality norms: ", mean_feat_norn)
+        print("Aligning modality norms to: ", modality_norm)
+        normalized_feat = {m: features[m] * modality_norm[m] / mean_feat_norn[m] for m in features}
+        return normalized_feat
+
+    def normalize_modalities(self, features):
+        # calculate norm of features for each modality
+        mean_feat_norn = {}
+        for m, feat in features.items():
+            mean_feat_norn[m] = np.mean(np.linalg.norm(feat, ord=2, axis=-1))
+        # normalize phase
+        print('Mean feature norms:', mean_feat_norn)
+        min_norm = np.min([mfn for mfn in mean_feat_norn.values()])
+        normalized_feat = {m: features[m] * min_norm / mean_feat_norn[m] for m in features}
+        return normalized_feat
 
     def load_features_noun(self, idx, segment):
         return torch.from_numpy(np.expand_dims(self.noun_data[idx][segment-1], axis=0)).float()

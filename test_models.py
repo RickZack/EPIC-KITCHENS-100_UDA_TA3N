@@ -5,6 +5,8 @@ import sys
 import json
 from json import encoder
 
+from yaml import parse
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -16,7 +18,7 @@ from sklearn.metrics import confusion_matrix
 
 from dataset import TSNDataSet
 from models import VideoModel
-from utils.utils import plot_confusion_matrix
+from utils.utils import plot_confusion_matrix, save_result_csv
 
 from colorama import init
 from colorama import Fore, Back, Style
@@ -24,6 +26,16 @@ from tqdm import tqdm
 from time import sleep
 encoder.FLOAT_REPR = lambda o: format(o, '.3f')
 init(autoreset=True)
+
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 
 # options
 parser = argparse.ArgumentParser(description="Standard video-level testing")
@@ -33,6 +45,7 @@ parser.add_argument('test_list', type=str)
 parser.add_argument('weights', type=str)
 parser.add_argument('test_target_data', type=str)
 parser.add_argument('result_json', type=str)
+parser.add_argument('--result_filename', type=str, default='')
 
 # ========================= Model Configs ==========================
 parser.add_argument('--noun_target_data', type=str, default=None)
@@ -60,6 +73,12 @@ parser.add_argument('--use_bn', type=str, default='none', choices=['none', 'AdaB
 parser.add_argument('--use_attn_frame', type=str, default='none', choices=['none', 'TransAttn', 'general', 'DotProduct'], help='attention-mechanism for frames only')
 parser.add_argument('--use_attn', type=str, default='none', choices=['none', 'TransAttn', 'general', 'DotProduct'], help='attention-mechanism')
 parser.add_argument('--n_attn', type=int, default=1, help='number of discriminators for transferable attention')
+parser.add_argument('--align_modalities', type=str2bool, default=False)
+parser.add_argument('--rna', type=str2bool, default=False)
+parser.add_argument("--seqex", type=str2bool, default=False)
+parser.add_argument('--use_target', type=str, default='none')
+parser.add_argument('--rna_weight', type=float, default=0)
+
 
 # ========================= Monitor Configs ==========================
 parser.add_argument('--top', default=[1, 3, 5], nargs='+', type=int, help='show top-N categories')
@@ -97,7 +116,7 @@ verb_net = VideoModel(num_class, args.baseline_type, args.frame_aggregation, arg
 		dropout_i=args.dropout_i, dropout_v=args.dropout_v, use_bn=args.use_bn, partial_bn=False,
 		n_rnn=args.n_rnn, rnn_cell=args.rnn_cell, n_directions=args.n_directions, n_ts=args.n_ts,
 		use_attn=args.use_attn, n_attn=args.n_attn, use_attn_frame=args.use_attn_frame,
-		verbose=args.verbose, before_softmax=False)
+		verbose=args.verbose, before_softmax=False, rna=args.rna, seqex=args.seqex)
 
 verb_checkpoint = torch.load(args.weights)
 
@@ -140,7 +159,9 @@ else:
 	data_set = TSNDataSet(args.test_target_data+".pkl", args.test_list, num_dataload=num_test, num_segments=args.test_segments,
 		new_length=data_length, modality=args.modality,
 		image_tmpl="img_{:05d}.t7" if args.modality in ['RGB', 'RGBDiff', 'RGBDiff2', 'RGBDiffplus'] else args.flow_prefix+"{}_{:05d}.t7",
-		test_mode=True
+		test_mode=True,
+		align_modalities=args.align_modalities
+		# modality_norms={'RGB': 126.2, 'Flow': 100.43, 'Audio': 146.86}
 		)
 data_loader = torch.utils.data.DataLoader(data_set, batch_size=args.bS, shuffle=False, num_workers=args.workers, pin_memory=True)
 
@@ -343,6 +364,11 @@ def validate(val_loader, verb_model, criterion, num_class, noun_model=None, val_
 		print(('Testing Results: Prec@1 verb {top1_verb.avg:.3f}  Prec@1 noun {top1_noun.avg:.3f} Prec@1 action {top1_action.avg:.3f} Prec@5 verb {top5_verb.avg:.3f} Prec@5 noun {top5_noun.avg:.3f} Prec@5 action {top5_action.avg:.3f} Loss {loss.avg:.5f}'
 		   .format(top1_verb=top1_verb, top1_noun=top1_noun, top1_action=top1_action, top5_verb=top5_verb, top5_noun=top5_noun, top5_action=top5_action, loss=losses)))
 		print(f"Loss verb: {loss_verb.item()}, Loss noun: {loss_noun.item()}")
+
+		if args.result_filename:
+			save_result_csv(args.result_filename, args.modality, args.frame_aggregation, args.use_target, args.seqex,
+					args.rna_weight, top1_verb.avg, top1_noun.avg, top1_action.avg, top5_verb.avg,
+					top5_noun.avg, top5_action.avg)
 	return top1_action.avg, top1_verb.avg, top1_noun.avg
 
 

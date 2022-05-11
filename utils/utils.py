@@ -4,6 +4,8 @@ import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
 import torch
+import os
+import csv
 
 def randSelectBatch(input, num):
     id_all = torch.randperm(input.size(0)).cuda()
@@ -48,3 +50,26 @@ def plot_confusion_matrix(path, cm, classes,
     plt.xlabel('Predicted label')
 
     plt.savefig(path)
+
+def save_result_csv(filename, modality, temp_aggr, use_target, seqex, rna_weight, prec1_v, prec_1n, prec_1a,
+                    prec_5v, prec_5n, prec5_5a):
+    file_exist = os.path.isfile(filename)
+    modalities = '-'.join(modality)
+    with open(filename, 'a') as f:
+        writer = csv.writer(f)
+
+        if not file_exist:
+            writer.writerow(['Modality', 'Temporal Aggregation', 'Precision@1_verb',
+                            'Precision@1_noun', 'Precision@1_action', 'Precision@5_verb',
+                            'Precision@5_noun', 'Precision@5_action'])
+        scenario = 'source only'
+        if rna_weight > 0:
+            scenario = 'UDA' if use_target != 'none' else 'DG'
+        layer = 'SqEx' if seqex else 'Linear'
+        additional_layer = layer if rna_weight > 0 else ''
+        t_aggr = f"{temp_aggr} {scenario} {additional_layer}"
+        if rna_weight > 0:
+            t_aggr += f' RNA (w={rna_weight})'
+
+        writer.writerow([modalities, t_aggr, prec1_v, prec_1n, prec_1a,
+                            prec_5v, prec_5n, prec5_5a])

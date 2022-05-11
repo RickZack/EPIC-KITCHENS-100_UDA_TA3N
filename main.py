@@ -2,6 +2,7 @@
 import os
 import time
 import shutil
+from rna.rna_block import RNALossUDA
 import torch
 import torch.nn.parallel
 import torch.nn.functional as F
@@ -22,9 +23,7 @@ from colorama import Fore, Back, Style
 import numpy as np
 from tensorboardX import SummaryWriter
 
-np.random.seed(1)
-torch.manual_seed(1)
-torch.cuda.manual_seed_all(1)
+
 
 init(autoreset=True)
 
@@ -34,6 +33,10 @@ gpu_count = torch.cuda.device_count()
 def main():
 	global args, best_prec1, writer_train, writer_val
 	args = parser.parse_args()
+
+	np.random.seed(args.seed)
+	torch.manual_seed(args.seed)
+	torch.cuda.manual_seed_all(args.seed)
 
 	print(Fore.GREEN + 'Baseline:', args.baseline_type)
 	print(Fore.GREEN + 'Frame aggregation method:', args.frame_aggregation)
@@ -52,6 +55,10 @@ def main():
 
 		if args.use_bn != 'none':
 			print(Fore.GREEN + 'Apply the adaptive normalization approach:', args.use_bn)
+
+	if args.rna:
+		print(Fore.GREEN + 'Using RNA with weight: ', args.rna_weight)
+		print(Fore.GREEN + 'Network used to rebalance norms: ', 'Squeeze-And-Excitation' if args.seqex else 'LinearLayer')
 
 	# determine the categories
 	#want to allow multi-label classes.
@@ -88,7 +95,8 @@ def main():
 				use_bn=args.use_bn if args.use_target != 'none' else 'none', ens_DA=args.ens_DA if args.use_target != 'none' else 'none',
 				n_rnn=args.n_rnn, rnn_cell=args.rnn_cell, n_directions=args.n_directions, n_ts=args.n_ts,
 				use_attn=args.use_attn, n_attn=args.n_attn, use_attn_frame=args.use_attn_frame,
-				verbose=args.verbose, share_params=args.share_params)
+				verbose=args.verbose, share_params=args.share_params, rna=args.rna,
+				seqex=args.seqex)
 
 	model = torch.nn.DataParallel(model, args.gpus).cuda()
 
@@ -165,7 +173,8 @@ def main():
 							new_length=data_length, modality=args.modality,
 							image_tmpl="img_{:05d}.t7" if args.modality in ["RGB", "RGBDiff", "RGBDiff2", "RGBDiffplus"] else args.flow_prefix+"{}_{:05d}.t7",
 							random_shift=False,
-							test_mode=True
+							test_mode=True,
+							align_modalities=args.align_modalities
 							)
 
 	source_sampler = torch.utils.data.sampler.RandomSampler(source_set)
@@ -175,7 +184,9 @@ def main():
 							new_length=data_length, modality=args.modality,
 							image_tmpl="img_{:05d}.t7" if args.modality in ["RGB", "RGBDiff", "RGBDiff2", "RGBDiffplus"] else args.flow_prefix + "{}_{:05d}.t7",
 							random_shift=False,
-							test_mode=True
+							test_mode=True,
+							align_modalities=args.align_modalities
+							# modality_norms={'RGB': 126.2, 'Flow': 100.43, 'Audio': 146.86}
 							)
 
 	target_sampler = torch.utils.data.sampler.RandomSampler(target_set)
@@ -213,8 +224,8 @@ def main():
 			adjust_learning_rate(optimizer, args.lr_decay)
 
 		# train for one epoch
-		loss_c, attn_epoch_source, attn_epoch_target = train(num_class, source_loader, target_loader, model, criterion, criterion_domain, optimizer, epoch, train_file, train_short_file, alpha, beta, gamma, mu)
-		
+		loss_c, attn_epoch_source, attn_epoch_target = train(num_class, source_loader, target_loader, model, criterion, criterion_domain, optimizer, epoch, train_file, train_short_file, alpha, beta, gamma, mu)		
+
 		if args.save_attention >= 0:
 			attn_source_all = torch.cat((attn_source_all, attn_epoch_source.unsqueeze(0)))  # save the attention values
 			attn_target_all = torch.cat((attn_target_all, attn_epoch_target.unsqueeze(0)))  # save the attention values
@@ -269,8 +280,13 @@ def main():
 					'prec1': 0.0,
 				}, False, path_exp)
 
+
 	
 	end_train = time.time()
+	if model.module.feature_norms:
+			fn = model.module.feature_norms
+			print(Fore.CYAN + 'feature norms src: ', [f"{m}: {fn['src'][m]['start']} -> {fn['src'][m]['end']}" for m in args.modality])
+			print(Fore.CYAN + 'feature norms tgt: ', [f"{m}: {fn['tgt'][m]['start']} -> {fn['tgt'][m]['end']}" for m in args.modality])
 	print(Fore.CYAN + 'total training time:', end_train - start_train)
 
 	# --- write the total time to log files ---#
@@ -317,6 +333,9 @@ def train(num_class, source_loader, target_loader, model, criterion, criterion_d
 	top5_noun = AverageMeter()
 	top1_action = AverageMeter()
 	top5_action = AverageMeter()
+
+	rna_criterion = RNALossUDA(1024)
+	losses_rna = AverageMeter()
 
 	if args.no_partialbn:
 		model.module.partialBN(False)
@@ -445,10 +464,17 @@ def train(num_class, source_loader, target_loader, model, criterion, criterion_d
 
 		#====== forward pass data ======#
 		attn_source, out_source, out_source_2, pred_domain_source, feat_source, attn_target, out_target, out_target_2, pred_domain_target, feat_target = model(source_data, target_data, beta_new, mu, is_train=True, reverse=False)
-
+		# import pdb; pdb.set_trace()
+		feat_fc_source = model.module.feat_fc_source
+		feat_fc_target = model.module.feat_fc_target
 		# ignore dummy tensors
 		attn_source, out_source, out_source_2, pred_domain_source, feat_source = removeDummy(attn_source, out_source, out_source_2, pred_domain_source, feat_source, batch_source_ori)
 		attn_target, out_target, out_target_2, pred_domain_target, feat_target = removeDummy(attn_target, out_target, out_target_2, pred_domain_target, feat_target, batch_target_ori)
+		if feat_fc_source is not None:
+			feat_fc_source = feat_fc_source[:batch_source_ori]
+		if feat_fc_target is not None:
+			feat_fc_target = feat_fc_target[:batch_target_ori]
+
 
 
 		# Pred normalise not use
@@ -488,6 +514,12 @@ def train(num_class, source_loader, target_loader, model, criterion, criterion_d
 
 		loss_verb = criterion(out_verb, label_verb)
 		loss_noun = criterion(out_noun, label_noun)
+		loss_rna = 0
+		# import pdb; pdb.set_trace()
+		if args.rna:
+			loss_rna += args.rna_weight*rna_criterion(feat_fc_source)
+			if args.use_target != 'none':
+				loss_rna += args.rna_weight*rna_criterion(feat_fc_target)
 		if args.train_metric == "all":
 			loss_classification = 0.5*(loss_verb+loss_noun)
 		elif args.train_metric == "noun":
@@ -500,11 +532,11 @@ def train(num_class, source_loader, target_loader, model, criterion, criterion_d
 		#MCD  not used
 		#if args.ens_DA == 'MCD' and args.use_target != 'none':
 		#	loss_classification += criterion(out_source_2, label)
-
-
+		if args.rna:
+			losses_rna.update(loss_rna, feat_fc_source.size(0))
 		losses_c_verb.update(loss_verb.item(), out_verb.size(0)) # pytorch 0.4.X
 		losses_c_noun.update(loss_noun.item(), out_noun.size(0))  # pytorch 0.4.X
-		loss = loss_classification
+		loss = loss_classification + loss_rna
 		losses_c.update(loss_classification.item(), out_verb.size(0))
 
 		# 2. calculate the loss for DA
@@ -658,6 +690,18 @@ def train(num_class, source_loader, target_loader, model, criterion, criterion_d
 		optimizer.zero_grad()
 
 		loss.backward()
+		# # import pdb; pdb.set_trace()
+		# # delete part
+		# del attn_source
+		# del out_source
+		# del out_source_2
+		# del pred_domain_source
+		# del feat_source
+		# del attn_target
+		# del out_target
+		# del out_target_2
+		# del pred_domain_target
+		# del feat_target
 
 		if args.clip_gradient is not None:
 			total_norm = clip_grad_norm_(model.parameters(), args.clip_gradient)
@@ -693,13 +737,15 @@ def train(num_class, source_loader, target_loader, model, criterion, criterion_d
 
 			if args.ens_DA != 'none' and args.use_target != 'none':
 				line += 'mu {mu:.6f}  loss_s {loss_s.avg:.4f}\t'
+			if args.rna:
+				line += 'loss_rna {loss_rna.avg:.4f}\t'
 
 			line = line.format(
 				epoch, i, len(source_loader), batch_time=batch_time, data_time=data_time, alpha=alpha, beta=beta_new, gamma=gamma, mu=mu,
 				loss=losses, loss_verb=losses_c_verb, loss_noun=losses_c_noun, loss_d=losses_d, loss_a=losses_a,
 				loss_e_verb=losses_e_verb, loss_e_noun=losses_e_noun, loss_s=losses_s, top1_verb=top1_verb,
 				top1_noun=top1_noun, top5_verb=top5_verb, top5_noun=top5_noun, top1_action=top1_action, top5_action=top5_action,
-				lr=optimizer.param_groups[0]['lr'])
+				lr=optimizer.param_groups[0]['lr'], loss_rna=losses_rna)
 
 			if i % args.show_freq == 0:
 				print(line)

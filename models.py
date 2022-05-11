@@ -1,3 +1,4 @@
+from rna.rna_block import RNABlock
 from torch import nn
 
 from torch.nn.init import *
@@ -65,7 +66,8 @@ class VideoModel(nn.Module):
 				crop_num=1, partial_bn=True, verbose=True, add_fc=1, fc_dim=1024,
 				n_rnn=1, rnn_cell='LSTM', n_directions=1, n_ts=5,
 				use_attn='TransAttn', n_attn=1, use_attn_frame='none',
-				share_params='Y'):
+				share_params='Y', rna=False,
+				seqex=True):
 		super(VideoModel, self).__init__()
 		self.modality = modality
 		self.train_segments = train_segments
@@ -82,6 +84,14 @@ class VideoModel(nn.Module):
 		self.add_fc = add_fc
 		self.fc_dim = fc_dim
 		self.share_params = share_params
+		self.feature_norms = {}
+
+		# RNA
+		self.feat_fc_source = None
+		self.feat_fc_target = None
+		self.rna = rna
+		if rna:
+			self.rna_block = RNABlock(modality, 1024, 1024, seqex).cuda()
 
 		# RNN
 		self.n_layers = n_rnn
@@ -260,7 +270,6 @@ class VideoModel(nn.Module):
 		elif self.frame_aggregation == "videodg":
 			self.num_bottleneck = 256
 			self.videodg_fc = nn.Sequential(
-                        nn.ReLU(),
                         nn.Linear(feat_shared_dim, self.num_bottleneck),
                         nn.ReLU(),
                         )
@@ -591,6 +600,21 @@ class VideoModel(nn.Module):
 		feat_base_source = input_source.view(-1, input_source.size()[-1]) # e.g. 256 x 25 x 2048 --> 6400 x 2048
 		feat_base_target = input_target.view(-1, input_target.size()[-1])  # e.g. 256 x 25 x 2048 --> 6400 x 2048
 
+		### Apply RNA
+		if self.rna:
+			# import pdb; pdb.set_trace()
+			feat_base_source, norms_src = self.rna_block(feat_base_source)
+			feat_base_target, norms_tgt = self.rna_block(feat_base_target)
+			if not self.feature_norms:
+				self.feature_norms = {'src': {m: {'start': n, 'end': -1} for m, n in zip(self.modality, norms_src)},
+				 'tgt': {m: {'start': n, 'end': -1} for m, n in zip(self.modality, norms_tgt)}
+				}
+			for m, n_src, n_tgt in zip(self.modality, norms_src, norms_tgt):
+				self.feature_norms['src'][m]['end'] = n_src
+				self.feature_norms['tgt'][m]['end'] = n_tgt
+			self.feat_fc_source = feat_base_source
+			self.feat_fc_target = feat_base_target
+
 		#=== shared layers ===#
 		# need to separate BN for source & target ==> otherwise easy to overfit to source data
 		if self.add_fc < 1:
@@ -635,6 +659,7 @@ class VideoModel(nn.Module):
 			feat_all_source.append(feat_fc_source.view((batch_source, num_segments) + feat_fc_source.size()[-1:])) # reshape ==> 1st dim is the batch size
 			feat_all_target.append(feat_fc_target.view((batch_target, num_segments) + feat_fc_target.size()[-1:]))
 
+			
 		# === adversarial branch (frame-level) ===#
 		pred_fc_domain_frame_source = self.domain_classifier_frame(feat_fc_source, beta)
 		pred_fc_domain_frame_target = self.domain_classifier_frame(feat_fc_target, beta)
@@ -713,10 +738,16 @@ class VideoModel(nn.Module):
 			feat_fc_video_source = self.videodg_fc(feat_fc_video_source) # 128x5x512 --> 128x5x256 (256-dim. relation feature vectors x 5)
 			feat_fc_video_target = self.videodg_fc(feat_fc_video_target)
 
-			# Here use videoDG RADA APN
+			# Here use videoDG RADA APNvideodg
 			feat_fc_video_source, _ = self.APN(feat_fc_video_source) # 128x5x256 --> 128x1280 (1280-dim. video feature vectors)
-			feat_fc_video_target, _ = self.APN(feat_fc_video_target)
-
+			# When not using DA, set target feature to dummy
+			# import pdb; pdb.set_trace()
+			if self.ens_DA == 'none' and self.use_bn == 'none' and is_train:
+				# import pdb; pdb.set_trace()
+				feat_fc_video_target = feat_fc_video_target.reshape((feat_fc_video_target.size(0), -1))
+			else:
+				feat_fc_video_target, _ = self.APN(feat_fc_video_target)
+			
 			attn_relation_source = feat_fc_video_source[:,0] # assign random tensors to attention values to avoid runtime error
 			attn_relation_target = feat_fc_video_target[:,0] # assign random tensors to attention values to avoid runtime error
 
@@ -732,7 +763,7 @@ class VideoModel(nn.Module):
 		if reverse:
 			feat_fc_video_source = GradReverse.apply(feat_fc_video_source, mu)
 			feat_fc_video_target = GradReverse.apply(feat_fc_video_target, mu)
-
+		# import pdb; pdb.set_trace()
 		pred_fc_video_source = (self.fc_classifier_video_verb_source(feat_fc_video_source), self.fc_classifier_video_noun_source(feat_fc_video_source))
 		pred_fc_video_target = (self.fc_classifier_video_verb_target(feat_fc_video_target) if self.share_params == 'N' else self.fc_classifier_video_verb_source(feat_fc_video_target),
 									 self.fc_classifier_video_noun_target(feat_fc_video_target) if self.share_params == 'N' else self.fc_classifier_video_noun_source(feat_fc_video_target))
@@ -760,6 +791,7 @@ class VideoModel(nn.Module):
 			pred_domain_all_target.append(pred_fc_domain_video_target)
 
 		#=== final output ===#
+		# import pdb; pdb.set_trace()
 		output_source = self.final_output(pred_fc_source, pred_fc_video_source, num_segments) # select output from frame or video prediction
 		output_target = self.final_output(pred_fc_target, pred_fc_video_target, num_segments)
 

@@ -1,18 +1,18 @@
 #!/bin/bash
-
+export CUDA_VISIBLE_DEVICES=1
 #====== parameters ======#
 dataset="epic" # hmdb_ucf | hmdb_ucf_small | ucf_olympic
 num_class='97,300'
-training=false # true | false
+training=true # true | false
 testing=true # true | false
-modality="RGB Audio"
+modality="RGB Flow Audio"
 mod="$(echo -e "${modality}" | xargs | tr ' ' _ )"
 echo $mod
 frame_type=feature # frame | feature
 num_segments=5 # sample frame # of each video for training
 test_segments=5
 baseline_type=video
-frame_aggregation=trn-m # method to integrate the frame-level features (avgpool | trn | trn-m | rnn | temconv)
+frame_aggregation=avgpool # method to integrate the frame-level features (avgpool | trn | trn-m | rnn | temconv)
 add_fc=1
 fc_dim=512
 arch=TBN # resnet50
@@ -21,6 +21,10 @@ share_params=Y # Y | N
 pred_normalize="N"
 weighted_class_loss_DA="N"
 weighted_class_loss="N"
+rna=true
+rna_weight=10
+seqex=true
+align_modalities=false
 
 if [ "$use_target" == "none" ] 
 then
@@ -38,7 +42,7 @@ if [ "$dataset" == "epic" ]
 then
 	dataset_source="source_train" # depend on users
 	dataset_target="target_train" # depend on users
-	dataset_val="target_test" # _noun" # depend on users
+	dataset_val="target_val" # _noun" # depend on users
 	num_source=16115 # number of training data (source)
 	num_target=26115 # number of training data (target)
 
@@ -48,7 +52,7 @@ then
 
 	train_source_list=$path_labels_root'/EPIC_100_uda_source_train.pkl' # '/domain_adaptation_source_train_pre-release_v3.pkl'
 	train_target_list=$path_labels_root'/EPIC_100_uda_target_train_timestamps.pkl' # '/domain_adaptation_target_train_pre-release_v6.pkl'
-	val_list=$path_labels_root'/EPIC_100_uda_target_test_timestamps.pkl' # '/domain_adaptation_target_test_pre-release_v3.pkl' # 'domain_adaptation_validation_pre-release_v3.pkl'
+	val_list=$path_labels_root'/EPIC_100_uda_target_val.pkl' # '/domain_adaptation_target_test_pre-release_v3.pkl' # 'domain_adaptation_validation_pre-release_v3.pkl'
 
 	path_exp=$path_exp_root'Testexp'
 fi
@@ -109,58 +113,66 @@ else
 	exp_path=$path_exp'-'$optimizer'-share_params_'$share_params'-lr_'$lr'-bS_'$bS'_'$bS_2'/'$dataset'-'$num_segments'seg-disDA_'$dis_DA'-alpha_'$alpha'-advDA_'$adv_DA'-beta_'$beta_0'_'$beta_1'_'$beta_2'-useBN_'$use_bn'-addlossDA_'$add_loss_DA'-gamma_'$gamma'-ensDA_'$ens_DA'-mu_'$mu'-useAttn_'$use_attn'-n_attn_'$n_attn'/'$frame_aggregation'/'
 fi
 
-echo 'exp_path: '$exp_path
-
 
 #====== select mode ======#
-if ($training) 
-then
-	
-	val_segments=$test_segments
+for frame_aggregation in avgpool trn-m
+	do
+	for modality in "RGB Audio" "RGB Flow" "Flow Audio" "RGB Flow Audio"
+		do
+		mod="$(echo -e "${modality}" | xargs | tr ' ' _ )"
+		if ($training) 
+		then
+			
+			val_segments=$test_segments
 
-	# parameters for optimization
-	lr_decay=10
-    	lr_adaptive=none # dann # none | loss | dann
-    	lr_steps_1=10
-    	lr_steps_2=20
-    	epochs=30
-	gd=20
-	
-	#------ main command ------#
-	echo $modality
-	python main.py $num_class $modality $train_source_list $train_target_list $val_list $path_data_val $path_data_source $path_data_target --exp_path $exp_path \
-	--train_metric $train_metric --dann_warmup --arch $arch --pretrained $pretrained --baseline_type $baseline_type --frame_aggregation $frame_aggregation \
-	--num_segments $num_segments --val_segments $val_segments --add_fc $add_fc --fc_dim $fc_dim --dropout_i 0.5 --dropout_v 0.5 \
-	--use_target $use_target --share_params $share_params \
-	--dis_DA $dis_DA --alpha $alpha --place_dis N Y N \
-	--adv_DA $adv_DA --beta $beta_0 $beta_1 $beta_2 --place_adv $adv_pos_0 Y Y \
-	--use_bn $use_bn --add_loss_DA $add_loss_DA --gamma $gamma \
-	--ens_DA $ens_DA --mu $mu \
-	--use_attn $use_attn --n_attn $n_attn --use_attn_frame $use_attn_frame \
-	--pred_normalize $pred_normalize --weighted_class_loss_DA $weighted_class_loss_DA --weighted_class_loss $weighted_class_loss \
-	--gd $gd --lr $lr --lr_decay $lr_decay --lr_adaptive $lr_adaptive --lr_steps $lr_steps_1 $lr_steps_2 --epochs $epochs --optimizer $optimizer \
-	--n_rnn 1 --rnn_cell LSTM --n_directions 1 --n_ts 5 --tensorboard \
-	-b $bS $bS_2 $bS -j 0 -ef 1 -pf 50 -sf 50 --copy_list N N --save_model \
+			# parameters for optimization
+			lr_decay=10
+				lr_adaptive=none # dann # none | loss | dann
+				lr_steps_1=10
+				lr_steps_2=20
+				epochs=30
+			gd=20
+			
+			#------ main command ------#
+			echo $modality
+			python main.py $num_class $modality $train_source_list $train_target_list $val_list $path_data_val $path_data_source $path_data_target --exp_path $exp_path \
+			--train_metric $train_metric --dann_warmup --arch $arch --pretrained $pretrained --baseline_type $baseline_type --frame_aggregation $frame_aggregation \
+			--num_segments $num_segments --val_segments $val_segments --add_fc $add_fc --fc_dim $fc_dim --dropout_i 0.5 --dropout_v 0.5 \
+			--use_target $use_target --share_params $share_params \
+			--dis_DA $dis_DA --alpha $alpha --place_dis N Y N \
+			--adv_DA $adv_DA --beta $beta_0 $beta_1 $beta_2 --place_adv $adv_pos_0 Y Y \
+			--use_bn $use_bn --add_loss_DA $add_loss_DA --gamma $gamma \
+			--ens_DA $ens_DA --mu $mu \
+			--use_attn $use_attn --n_attn $n_attn --use_attn_frame $use_attn_frame \
+			--pred_normalize $pred_normalize --weighted_class_loss_DA $weighted_class_loss_DA --weighted_class_loss $weighted_class_loss \
+			--gd $gd --lr $lr --lr_decay $lr_decay --lr_adaptive $lr_adaptive --lr_steps $lr_steps_1 $lr_steps_2 --epochs $epochs --optimizer $optimizer \
+			--n_rnn 1 --rnn_cell LSTM --n_directions 1 --n_ts 5 --tensorboard \
+			-b $bS $bS_2 $bS -j 0 -ef 1 -pf 50 -sf 50 --copy_list N N --save_model --rna $rna --rna_weight $rna_weight \
+			--seqex $seqex --align_modalities $align_modalities 
+		fi
 
-fi
+		if ($testing)
+		then
+			model=checkpoint # checkpoint | model_best
+			echo $modality
 
-if ($testing)
-then
-	model=checkpoint # checkpoint | model_best
-	echo $model
+			# testing on the validation set
+			echo 'testing on the test set'
+			python test_models.py $num_class \
+			$modality \
+			$val_list \
+			$exp_path$mod'/'$model'.pth.tar' $path_data_val 'test.json'\
+			--arch $arch --test_segments $test_segments \
+			--save_scores $exp_path$mod'/scores_'$dataset_target'-'$model'-'$test_segments'seg' --save_confusion $exp_path$mod'/confusion_matrix_'$dataset_target'-'$model'-'$test_segments'seg' \
+			--n_rnn 1 --rnn_cell LSTM --n_directions 1 --n_ts 5 \
+			--use_attn $use_attn --n_attn $n_attn --use_attn_frame $use_attn_frame --use_bn $use_bn --share_params $share_params \
+			-j 4 --bS 512 --top 1 3 5 --add_fc 1 --fc_dim $fc_dim --baseline_type $baseline_type --frame_aggregation $frame_aggregation --rna $rna --seqex $seqex \
+			--align_modalities $align_modalities --result_filename shared.csv --rna_weight $rna_weight --use_target $use_target
+		fi
+	done
+done
 
-	# testing on the validation set
-	echo 'testing on the test set'
-	python test_models.py $num_class \
-	$modality \
-	 $val_list \
-	 $exp_path$mod'/'$model'.pth.tar' $path_data_val 'test.json'\
-	--arch $arch --test_segments $test_segments \
-	--save_scores $exp_path$mod'/scores_'$dataset_target'-'$model'-'$test_segments'seg' --save_confusion $exp_path$mod'/confusion_matrix_'$dataset_target'-'$model'-'$test_segments'seg' \
-	--n_rnn 1 --rnn_cell LSTM --n_directions 1 --n_ts 5 \
-	--use_attn $use_attn --n_attn $n_attn --use_attn_frame $use_attn_frame --use_bn $use_bn --share_params $share_params \
-	-j 4 --bS 512 --top 1 3 5 --add_fc 1 --fc_dim $fc_dim --baseline_type $baseline_type --frame_aggregation $frame_aggregation
-fi
+
 
 # ----------------------------------------------------------------------------------
 exit 0
