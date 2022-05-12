@@ -3,7 +3,7 @@ export CUDA_VISIBLE_DEVICES=1
 #====== parameters ======#
 dataset="epic" # hmdb_ucf | hmdb_ucf_small | ucf_olympic
 num_class='97,300'
-training=false # true | false
+training=true # true | false
 testing=true # true | false
 modality="RGB Audio"
 mod="$(echo -e "${modality}" | xargs | tr ' ' _ )"
@@ -20,7 +20,7 @@ share_params=Y # Y | N
 pred_normalize="N"
 weighted_class_loss_DA="N"
 weighted_class_loss="N"
-additional_net=SqEx
+additional_net=linear
 rna_weight=10
 align_modalities=''
 add_net_output=512

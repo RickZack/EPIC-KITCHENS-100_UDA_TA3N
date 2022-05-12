@@ -23,7 +23,7 @@ weighted_class_loss="N"
 additional_net=linear
 rna_weight=10
 align_modalities=''
-add_net_output=512
+add_net_output=1024
 
 if [ "$use_target" == "none" ] 
 then
@@ -165,7 +165,7 @@ for frame_aggregation in avgpool trn-m
 			--n_rnn 1 --rnn_cell LSTM --n_directions 1 --n_ts 5 \
 			--use_attn $use_attn --n_attn $n_attn --use_attn_frame $use_attn_frame --use_bn $use_bn --share_params $share_params \
 			-j 4 --bS 512 --top 1 3 5 --add_fc 1 --fc_dim $fc_dim --baseline_type $baseline_type --frame_aggregation $frame_aggregation --additional_net "${additional_net}" \
-			--align_modalities "${align_modalities}" --result_filename fc512.csv --rna_weight $rna_weight --use_target $use_target --add_net_output $add_net_output
+			--align_modalities "${align_modalities}" --result_filename fc1021.csv --rna_weight $rna_weight --use_target $use_target --add_net_output $add_net_output
 		fi
 	done
 done
