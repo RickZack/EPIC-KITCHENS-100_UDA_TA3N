@@ -88,6 +88,8 @@ parser.add_argument('--additional_net', type=str.lower, choices=['linear', 'sqex
 parser.add_argument('--additional_net_drop', type=float, default=0.5)
 parser.add_argument('--rna_weight', type=float, default=10)
 parser.add_argument('--add_net_output', type=int, default=1024)
+parser.add_argument('--safn_loss_delta', type=float, default=1)
+parser.add_argument('--safn_loss_weight', type=float, default=0)
 
 
 # ========================= Learning Configs ==========================

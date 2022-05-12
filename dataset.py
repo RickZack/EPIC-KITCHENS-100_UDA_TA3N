@@ -104,8 +104,8 @@ class TSNDataSet(data.Dataset):
         mean_feat_norn = {}
         for m, feat in features.items():
             mean_feat_norn[m] = np.mean(np.linalg.norm(feat, ord=2, axis=-1))
-        print("Modality norms: ", mean_feat_norn)
-        print("Aligning modality norms to: ", modality_norm)
+        print(Fore.CYAN + "Modality norms: ", mean_feat_norn)
+        print(Fore.CYAN + "Aligning modality norms to: ", modality_norm)
         normalized_feat = {m: features[m] * modality_norm[m] / mean_feat_norn[m] for m in features}
         return normalized_feat
 

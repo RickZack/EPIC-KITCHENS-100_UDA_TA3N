@@ -66,6 +66,8 @@ parser.add_argument('--additional_net', type=str.lower, choices=['linear', 'sqex
 parser.add_argument('--additional_net_drop', type=float, default=0.5)
 parser.add_argument("--rna_weight", type=float, default=10)
 parser.add_argument('--add_net_output', type=int, default=1024)
+parser.add_argument('--safn_loss_weight', type=float, default=0)
+parser.add_argument('--safn_loss_delta', type=float, default=1)
 
 
 # ========================= Monitor Configs ==========================
@@ -356,7 +358,7 @@ def validate(val_loader, verb_model, criterion, num_class, noun_model=None, val_
 
 		if args.result_filename:
 			save_result_csv(args.result_filename, args.modality, args.frame_aggregation, args.use_target, args.additional_net, args.additional_net_drop,
-					args.rna_weight, top1_verb.avg, top1_noun.avg, top1_action.avg, top5_verb.avg,
+					args.rna_weight, args.safn_loss_weight, args.safn_loss_delta, top1_verb.avg, top1_noun.avg, top1_action.avg, top5_verb.avg,
 					top5_noun.avg, top5_action.avg)
 	return top1_action.avg, top1_verb.avg, top1_noun.avg
 

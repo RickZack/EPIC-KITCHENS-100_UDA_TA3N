@@ -1,3 +1,4 @@
+from turtle import forward
 from colorama import Fore
 from torch import nn
 import torch
@@ -64,4 +65,19 @@ class RNALoss(nn.Module):
         loss = 0
         for f1, f2 in combo(mfn, 2):
             loss += (f1/f2 - 1)**2
+        return loss
+
+class SAFNLoss(nn.Module):
+    def __init__(self, input_dim: int, delta: float) -> None:
+        super().__init__()
+        self.input_dim = input_dim
+        self.delta = delta
+    def forward(self, input):
+        # For each modality separately
+        input_chuncks = input.split(self.input_dim, dim=-1) # to [(bs * num_segments, input_dim)] x num_modalities
+        loss = 0
+        for inp in input_chuncks:
+            radius = inp.norm(p=2, dim=-1).detach()
+            radius = radius + self.delta
+            loss += ((inp.norm(p=2, dim=-1) - radius) ** 2).mean()
         return loss

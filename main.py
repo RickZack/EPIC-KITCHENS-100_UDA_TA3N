@@ -2,7 +2,7 @@
 import os
 import time
 import shutil
-from rna.rna_block import RNALoss
+from rna.rna_block import RNALoss, SAFNLoss
 import torch
 import torch.nn.parallel
 import torch.nn.functional as F
@@ -62,6 +62,8 @@ def main():
 		print(Fore.GREEN + 'Dropout value after additional net: ', args.additional_net_drop)
 	if args.rna_weight:
 		print(Fore.GREEN + 'Using RNA loss with weight: ', args.rna_weight)
+	if args.safn_loss_weight > 0:
+		print(Fore.GREEN + 'Using SAFN with weight, delta: ', args.safn_loss_weight, args.safn_loss_delta)
 
 	# determine the categories
 	#want to allow multi-label classes.
@@ -339,7 +341,9 @@ def train(num_class, source_loader, target_loader, model, criterion, criterion_d
 
 	feat_dim = args.add_net_output if args.additional_net == 'linear' else 1024
 	rna_criterion = RNALoss(feat_dim)
+	safn_criterion = SAFNLoss(feat_dim, args.safn_loss_delta)
 	losses_rna = AverageMeter()
+	losses_safn = AverageMeter()
 
 	if args.no_partialbn:
 		model.module.partialBN(False)
@@ -519,7 +523,12 @@ def train(num_class, source_loader, target_loader, model, criterion, criterion_d
 		loss_verb = criterion(out_verb, label_verb)
 		loss_noun = criterion(out_noun, label_noun)
 		loss_rna = 0
+		loss_safn = 0
 		# import pdb; pdb.set_trace()
+		if args.safn_loss_weight > 0:
+			loss_safn += args.safn_loss_weight * safn_criterion(feat_fc_source)
+			if args.use_target != 'none':
+				loss_safn += args.safn_loss_weight * safn_criterion(feat_fc_target)
 		if args.rna_weight > 0:
 			loss_rna += args.rna_weight*rna_criterion(feat_fc_source)
 			if args.use_target != 'none':
@@ -538,9 +547,11 @@ def train(num_class, source_loader, target_loader, model, criterion, criterion_d
 		#	loss_classification += criterion(out_source_2, label)
 		if args.rna_weight:
 			losses_rna.update(loss_rna, feat_fc_source.size(0))
+		if args.safn_loss_weight > 0:
+			losses_safn.update(loss_safn, feat_fc_source.size(0))
 		losses_c_verb.update(loss_verb.item(), out_verb.size(0)) # pytorch 0.4.X
 		losses_c_noun.update(loss_noun.item(), out_noun.size(0))  # pytorch 0.4.X
-		loss = loss_classification + loss_rna
+		loss = loss_classification + loss_rna + loss_safn
 		losses_c.update(loss_classification.item(), out_verb.size(0))
 
 		# 2. calculate the loss for DA
@@ -694,18 +705,6 @@ def train(num_class, source_loader, target_loader, model, criterion, criterion_d
 		optimizer.zero_grad()
 
 		loss.backward()
-		# # import pdb; pdb.set_trace()
-		# # delete part
-		# del attn_source
-		# del out_source
-		# del out_source_2
-		# del pred_domain_source
-		# del feat_source
-		# del attn_target
-		# del out_target
-		# del out_target_2
-		# del pred_domain_target
-		# del feat_target
 
 		if args.clip_gradient is not None:
 			total_norm = clip_grad_norm_(model.parameters(), args.clip_gradient)
@@ -743,13 +742,15 @@ def train(num_class, source_loader, target_loader, model, criterion, criterion_d
 				line += 'mu {mu:.6f}  loss_s {loss_s.avg:.4f}\t'
 			if args.rna_weight:
 				line += 'loss_rna {loss_rna.avg:.4f}\t'
+			if args.safn_loss_weight:
+				line += 'loss_safn {loss_safn.avg:.4f}\t'
 
 			line = line.format(
 				epoch, i, len(source_loader), batch_time=batch_time, data_time=data_time, alpha=alpha, beta=beta_new, gamma=gamma, mu=mu,
 				loss=losses, loss_verb=losses_c_verb, loss_noun=losses_c_noun, loss_d=losses_d, loss_a=losses_a,
 				loss_e_verb=losses_e_verb, loss_e_noun=losses_e_noun, loss_s=losses_s, top1_verb=top1_verb,
 				top1_noun=top1_noun, top5_verb=top5_verb, top5_noun=top5_noun, top1_action=top1_action, top5_action=top5_action,
-				lr=optimizer.param_groups[0]['lr'], loss_rna=losses_rna)
+				lr=optimizer.param_groups[0]['lr'], loss_rna=losses_rna, loss_safn=losses_safn)
 
 			if i % args.show_freq == 0:
 				print(line)

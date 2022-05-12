@@ -52,7 +52,7 @@ def plot_confusion_matrix(path, cm, classes,
 
     plt.savefig(path)
 
-def save_result_csv(filename, modality, temp_aggr, use_target, additional_net, dropout, rna_weight, prec1_v, prec_1n, prec_1a,
+def save_result_csv(filename, modality, temp_aggr, use_target, additional_net, dropout, rna_weight, safn_weight, safn_delta, prec1_v, prec_1n, prec_1a,
                     prec_5v, prec_5n, prec5_5a):
     file_exist = os.path.isfile(filename)
     modalities = '-'.join(modality)
@@ -67,8 +67,11 @@ def save_result_csv(filename, modality, temp_aggr, use_target, additional_net, d
         if rna_weight > 0:
             scenario = 'UDA' if use_target != 'none' else 'DG'
             rna = f'RNA (w={rna_weight})'
+        if safn_weight > 0:
+            rna += f' SAFN (w={safn_weight}, Δ={safn_delta})'
         if dropout > 0:
             drop = f'(drop={dropout})'
+
         t_aggr = f"{temp_aggr} {scenario} {additional_net}{drop} {rna}"
             
 
